@@ -1,0 +1,350 @@
+
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from decimal import Decimal
+from pathlib import Path
+from typing import Callable, Dict, Optional
+
+import pandas as pd
+from rdflib import Graph, Literal, Namespace, URIRef
+from rdflib.namespace import RDF, OWL, XSD
+
+# ── GLOBAL NAMESPACES ─────────────────────────────────────────────────
+HONT   = Namespace("https://ontology.humanitariandata.org/hxl-ontology")  # ontology (TBox)
+HXL    = Namespace("https://hxlstandard.org/ns/#")
+GUFO   = Namespace("http://purl.org/nemo/gufo#")
+HXDATA = Namespace("https://ontology.humanitariandata.org/hxl-data#")       # ABox instances
+
+ONTOLOGY_PATH = Path(r"C:\Users\mohma\Desktop\HXLOntologyPrtoegeEdit.ttl")
+
+# ── PER‑SHEET CONFIGURATION ───────────────────────────────────────────
+@dataclass
+class SheetCfg:
+    sheet_name: str
+    pk_column: str
+    uri_prefix: str
+    rdf_type: Optional[str] = None
+    custom: Optional[Callable[[Graph, URIRef, pd.Series], None]] = None
+    skip: bool = False
+
+CFG: Dict[str, SheetCfg] = {
+    "BeneficiaryContract": SheetCfg(
+        sheet_name="BeneficiaryContract",
+        pk_column="#beneficiary +code" ,
+        uri_prefix=f"{HXDATA}Beneficiary_",
+        rdf_type=f"{HONT}Beneficiary",
+    ),
+    "Projects": SheetCfg(
+        sheet_name="Projects",
+        pk_column="#project +code",
+        uri_prefix=f"{HXDATA}Project_",
+        rdf_type=f"{HONT}Project",
+    ),
+    "Inventory": SheetCfg(
+        sheet_name="Inventory",
+        pk_column="#inventory +code",
+        uri_prefix=f"{HXDATA}Inventory_",
+        rdf_type=f"{HONT}Inventory",
+        
+    ),
+    "NeedsAssessment": SheetCfg(
+        sheet_name="NeedsAssessment",
+        pk_column="#needsAssessment +code",
+        uri_prefix=f"{HXDATA}NeedsAssessment_",
+        rdf_type=f"{HONT}NeedsAssessment",
+    ),
+    "LocationMaster": SheetCfg(
+        sheet_name="LocationMaster",
+        pk_column="#location +code",
+        uri_prefix="",
+        skip=True,
+    ),
+    "AidItemCatalog": SheetCfg(
+        sheet_name="AidItemCatalog",
+        pk_column="#item +code",
+        uri_prefix=f"{HXDATA}AidItem_",
+        rdf_type=f"{HONT}AidItem",
+    ),
+    "DeliveryLog": SheetCfg(
+        sheet_name="DeliveryLog",
+        pk_column="#delivery +code",
+        uri_prefix=f"{HXDATA}Delivery_",
+        rdf_type=f"{HONT}Delivery",
+    ),
+    "DistributionLog": SheetCfg(
+        sheet_name="DistributionLog",
+        pk_column="#distribution +code",
+        uri_prefix=f"{HXDATA}Distribution_",
+        rdf_type=f"{HONT}Distribution",
+    ),
+    "Organization" : SheetCfg(
+        sheet_name="Organization",  # dummy name since no sheet
+        pk_column="#org +code",
+        uri_prefix=f"{HXDATA}Organization_",
+        rdf_type=f"{HONT}Organization",
+        skip=True,  # since no actual sheet to process
+),
+    "ImpactReport" : SheetCfg(
+        sheet_name="ImpactReport",
+        pk_column="#impactReport +code",
+        uri_prefix=f"{HXDATA}ImpactReport_",
+        rdf_type=f"{HONT}ImpactReport",
+    
+
+),
+    "Receipt" : SheetCfg(
+        sheet_name="Receipt",
+        pk_column="#receipt +code",
+        uri_prefix=f"{HXDATA}Receipt",
+        rdf_type=f"{HONT}Receipt",
+        
+),
+     "SectorNeed" : SheetCfg(
+        sheet_name="Sector",
+        pk_column="#Sector +code",
+        uri_prefix=f"{HXDATA}SectorNeed",
+        rdf_type=f"{HONT}SectorNeed",
+),
+     "Partner" : SheetCfg(
+        sheet_name="Partner",
+        pk_column="#org +partner",
+        uri_prefix=f"{HXDATA}partner",
+        rdf_type=f"{HONT}partner",
+),
+
+}
+
+# ── ONTOLOGY & HXL PROPERTY MAP ───────────────────────────────────────
+otl_graph = Graph()
+otl_graph.parse(ONTOLOGY_PATH, format="turtle")
+
+hxl_to_prop: Dict[str, URIRef] = {}
+for p in otl_graph.subjects(RDF.type, OWL.DatatypeProperty):
+    for tag in otl_graph.objects(p, HXL.HXL):
+        hxl_to_prop[str(tag).strip()] = p
+if not hxl_to_prop:
+    raise RuntimeError("No HXL annotations found in ontology; cannot map columns → properties.")
+
+# Beneficiary‑specific literal predicates (prevent leakage)
+BEN_PROPS: Set[URIRef] = {
+    hxl_to_prop.get("#beneficiary +name"),
+    hxl_to_prop.get("#beneficiary +code"),
+}
+BEN_PROPS = {p for p in BEN_PROPS if p is not None}
+
+# ── UTILS ─────────────────────────────────────────────────────────────
+
+def build_uri(cfg_key: str, code: str) -> URIRef:
+    """Canonical URI for entity *cfg_key* with primary key *code*."""
+    return URIRef(f"{CFG[cfg_key].uri_prefix}{code}")
+
+
+def add_foreign_link(g: Graph, subj: URIRef, row: pd.Series, column: str, target_cfg_key: str, predicate: URIRef):
+    code_val = str(row.get(column, "")).strip()
+    if code_val:
+        g.add((subj, predicate, build_uri(target_cfg_key, code_val)))
+
+
+def make_literal(val):
+    if pd.isna(val):
+        return None
+    if isinstance(val, bool):
+        return Literal(val, datatype=XSD.boolean)
+    if isinstance(val, int):
+        return Literal(val, datatype=XSD.integer)
+    if isinstance(val, float):
+        if val.is_integer():
+            return Literal(int(val), datatype=XSD.integer)
+        txt = f"{val:.6f}".rstrip("0").rstrip(".")
+        return Literal(Decimal(txt), datatype=XSD.decimal)
+    return Literal(str(val))
+
+# ── CUSTOM HOOKS ──────────────────────────────────────────────────────
+
+
+#link beneficary to project 
+# -- Helper --
+def add_foreign_link(g: Graph, subj: URIRef, row: pd.Series, column: str, target_cfg_key: str, predicate: URIRef):
+    code_val = str(row.get(column, "")).strip()
+    if code_val:
+        obj_uri = build_uri(target_cfg_key, code_val)
+        print(f"🔗 Adding triple: {subj} -- {predicate} --> {obj_uri}")
+        g.add((subj, predicate, obj_uri))
+    else:
+        print(f"⚠️ Missing value in column '{column}' for subject {subj}")
+
+
+# ✅ BeneficiaryContract: Combine 2 functions
+def beneficiarycontract_all(g: Graph, subj: URIRef, row: pd.Series):
+    add_foreign_link(g, subj, row, "#project +code", "Projects", HONT.UnderProject)
+    add_foreign_link(g, subj, row, "#benefitContract +code", "BeneficiaryContract", HONT.HasBenefitContract)
+    add_foreign_link(g, subj, row, "#item +code", "AidItemCatalog", HONT.HasPromisedItems)
+    add_foreign_link(g, subj, row, "#org +code", "Organization", HONT.ManagedBy)
+    add_foreign_link(g, subj, row, "#beneficiary +code", "BeneficiaryContract", HONT.HasBeneficiary)
+    add_foreign_link(g, subj, row, "#location +code", "LocationMaster", HONT.HasBeneficiaryLocation)
+
+
+
+CFG["BeneficiaryContract"].custom = beneficiarycontract_all
+
+
+# ✅ NeedsAssessment: Single function
+def link_NA_to_Project(g: Graph, subj: URIRef, row: pd.Series):
+    add_foreign_link(g, subj, row, "#project +code", "Projects", HONT.ForProject)
+    add_foreign_link(g, subj, row, "#org +code", "Organization", HONT.EvaluatedBy)
+    add_foreign_link(g, subj, row, "#respondee +code", "NeedsAssessment", HONT.HasRespondee)
+    add_foreign_link(g, subj, row, "#location +code", "LocationMaster", HONT.HasRespondeeLocation)
+    add_foreign_link(g, subj, row, "#respondee +need +code", "NeedsAssessment", HONT.HasNeed)
+    add_foreign_link(g, subj, row, "#respondee +status", "NeedsAssessment", HONT.HasStatus)
+
+CFG["NeedsAssessment"].custom = link_NA_to_Project
+
+
+# ✅ DeliveryLog: Only one relation
+def DeliveryLog_all(g: Graph, subj: URIRef, row: pd.Series):
+    add_foreign_link(g, subj, row, "#project +code", "Projects", HONT.ForProject)
+    add_foreign_link(g, subj, row, "#org +code", "Organization", HONT.RecievedBy)
+    add_foreign_link(g, subj, row, "#item +code", "AidItemCatalog", HONT.HasDeliveryItem)
+    add_foreign_link(g, subj, row, "#location +code", "LocationMaster", HONT.HasDeliveryLocation)
+
+
+CFG["DeliveryLog"].custom = DeliveryLog_all
+
+
+# ✅ DistributionLog: Combine project + beneficiary
+def DistributionLog_all(g: Graph, subj: URIRef, row: pd.Series):
+    add_foreign_link(g, subj, row, "#project +code", "Projects", HONT.ForProject)
+    add_foreign_link(g, subj, row, "#beneficiary +code", "BeneficiaryContract", HONT.Serves)
+    add_foreign_link(g, subj, row, "#item +code", "AidItemCatalog", HONT.HasDistributionItems)
+    add_foreign_link(g, subj, row, "#org +code", "Organization", HONT.OperatedBy)
+    add_foreign_link(g, subj, row, "#receipt +code", "Receipt", HONT.HasReceipt)
+    add_foreign_link(g, subj, row, "#location +code", "LocationMaster", HONT.HasDistribtuionLocation)
+    
+
+CFG["DistributionLog"].custom = DistributionLog_all
+
+
+# ✅ Projects: Link to organization
+def link_project_to_organisation(g: Graph, subj: URIRef, row: pd.Series):
+    add_foreign_link(g, subj, row, "#org +code", "Organization", HONT.PlannedBy)
+    add_foreign_link(g, subj, row, "#org +partner", "Organization", HONT.ImplementedBy)
+    add_foreign_link(g, subj, row, "#sector +code", "SectorNeed", HONT.HasSectorNeed)
+
+
+
+CFG["Projects"].custom = link_project_to_organisation
+
+
+# ✅ Inventory: Combine affected + item
+def Inventory_all(g: Graph, subj: URIRef, row: pd.Series):
+    add_foreign_link(g, subj, row, "#org +code", "Organization", HONT.ResourceOwner)
+    
+    # Link to the Storage Location
+    add_foreign_link(g, subj, row, "#location +code", "LocationMaster", HONT.HasStorageLocation)
+    
+    # Link to the Stored Item
+    add_foreign_link(g, subj, row, "#item +code", "AidItemCatalog", HONT.HasStoredItem)
+
+
+
+CFG["Inventory"].custom = Inventory_all
+
+
+def Impactreportlinks(g: Graph, subj: URIRef, row: pd.Series):
+    add_foreign_link(g, subj, row, "#org +code", "Organization", HONT.CollectedBy)
+    add_foreign_link(g, subj, row, "#location +code", "LocationMaster", HONT.HasAffectedLocation)
+    add_foreign_link(g, subj, row, "#affected +code", "ImpactReport", HONT.HasAffected)
+    add_foreign_link(g, subj, row, "#sector +code", "ImpactReport", HONT.HasSectorNeed)
+
+CFG["ImpactReport"].custom = Impactreportlinks
+
+
+def Partnershipcontractlinks(g: Graph, subj: URIRef, row: pd.Series):
+    add_foreign_link(g, subj, row, "#org +code", "Organization", HONT.Signs)
+    add_foreign_link(g, subj, row, "#org +partner", "Organization", HONT.Binds)
+  
+
+CFG["Organization"].custom = Partnershipcontractlinks
+
+
+def df_to_graph(df: pd.DataFrame, spec: SheetCfg) -> Graph:
+    g = Graph()
+    g += otl_graph
+    g.bind("hxl", HXL)
+    g.bind("hont", HONT)
+    g.bind("hxd", HXDATA)
+
+    for _, row in df.iterrows():
+        key = str(row.get(spec.pk_column, "")).strip()
+        if not key:
+            continue
+        subj = URIRef(f"{spec.uri_prefix}{key}")
+        if spec.rdf_type:
+            g.add((subj, RDF.type, URIRef(spec.rdf_type)))
+
+        for col, val in row.items():
+            prop = hxl_to_prop.get(col.strip())
+            lit = make_literal(val)
+            if prop and lit is not None:
+                g.add((subj, prop, lit))
+        if spec.custom:
+            spec.custom(g, subj, row)
+    return g
+
+def process_workbook(xl_path: Path | str, out_dir: Path | str, *, nt: bool = False):
+    xl_path, out_dir = Path(xl_path), Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"\nProcessing {xl_path.name}…")
+
+    dfs = pd.read_excel(xl_path, sheet_name=None)
+    combined_graph = Graph()
+    combined_graph += otl_graph
+    combined_graph.bind("hxl", HXL)
+    combined_graph.bind("hont", HONT)
+    combined_graph.bind("hxd", HXDATA)
+
+    for sheet_name, df in dfs.items():
+        if sheet_name not in CFG:
+            print(f"  • Sheet '{sheet_name}' has no config – skipped")
+            continue
+        if CFG[sheet_name].skip:
+            print(f"  • Sheet '{sheet_name}' marked as skip – skipped")
+            continue
+
+        spec = CFG[sheet_name]
+        g = df_to_graph(df, spec)
+        combined_graph += g
+
+        ext, fmt = ("nt", "nt") if nt else ("ttl", "turtle")
+        out_file = out_dir / f"{xl_path.stem}_{sheet_name}.{ext}"
+        g.serialize(out_file, format=fmt, encoding="utf-8")
+        print(f"  ✔ {sheet_name} → {out_file.name} ({len(g)} triples)")
+
+    # Save combined RDF for this workbook
+    ext, fmt = ("nt", "nt") if nt else ("ttl", "turtle")
+    combined_out_file = out_dir / f"{xl_path.stem}_ALL.{ext}"
+    combined_graph.serialize(combined_out_file, format=fmt, encoding="utf-8")
+    print(f"✔ Combined RDF for {xl_path.name} → {combined_out_file.name} ({len(combined_graph)} triples)")
+
+
+# ── MAIN ──────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    EXCEL_FILES = [
+        r"C:\Users\mohma\Downloads\serialisationsheetdivision.xlsx", 
+        r"C:\Users\mohma\Documents\NRC-Data.xlsx",
+        r"C:\Users\mohma\Downloads\ACTED-Workbook.xlsx",
+    ]
+    OUTPUT_DIR = Path(r"C:\Users\mohma\Downloads\ttl_exports")
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    for wb in EXCEL_FILES:
+        process_workbook(wb, OUTPUT_DIR, nt=False)
+
+    print("\nDone.")
+
+
+
+
