@@ -18,7 +18,7 @@ HXL    = Namespace("https://hxlstandard.org/ns/#")
 GUFO   = Namespace("http://purl.org/nemo/gufo#")
 HXDATA = Namespace("https://ontology.humanitariandata.org/hxl-data#")       # ABox instances
 
-ONTOLOGY_PATH = Path(r"C:\Users\mohma\Desktop\HXLOntologyPrtoegeEdit.ttl")
+ONTOLOGY_PATH = Path(' insert ontology file path here ')
 
 # ── PER‑SHEET CONFIGURATION ───────────────────────────────────────────
 @dataclass
@@ -331,13 +331,15 @@ def process_workbook(xl_path: Path | str, out_dir: Path | str, *, nt: bool = Fal
 
 
 # ── MAIN ──────────────────────────────────────────────────────────────
-if __name__ == "__main__":
+#insert excel workbooks path here
+if __name__ == "__main__":     
     EXCEL_FILES = [
-        r"C:\Users\mohma\Downloads\serialisationsheetdivision.xlsx", 
-        r"C:\Users\mohma\Documents\NRC-Data.xlsx",
-        r"C:\Users\mohma\Downloads\ACTED-Workbook.xlsx",
+        r"C:", 
+        r"C:",
+        r"C:",
     ]
-    OUTPUT_DIR = Path(r"C:\Users\mohma\Downloads\ttl_exports")
+#select triple output path 
+    OUTPUT_DIR = Path(r"C:")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     for wb in EXCEL_FILES:
