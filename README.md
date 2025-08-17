@@ -9,7 +9,7 @@ The project explores how the Humanitarian Exchange Language (HXL) can be formall
 
 2- NRC-Data.xlsx – Simulated organizational workbook for NRC, prepared following the same structure.
 
-3- serialisationsheetdivision.xlsx – Consolidated synthetic dataset demonstrating how sheets were divided and serialized for RDF conversion.
+3- serialisationsheetdivision.xlsx –the first synthetic dataset demonstrating how sheets were divided- basically its also a syntehtic workbook data and follows the same structure. 
 
 🧩 Ontology
 
