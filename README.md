@@ -22,6 +22,11 @@ The project explores how the Humanitarian Exchange Language (HXL) can be formall
 
 Serialization code for triples – Scripts used to transform HXL-tagged Excel data into RDF triples for uploading into GraphDB.
 
+for the code to work:
+1-  the Excel workbook sheet names must match the names in the code
+2-  the main idenifier for each sheet must be present like for beneficiary contract its: #beneficiary +code 
+3
+
 📊 Visual Modeling
 
 hxl final draft.vpp – Visual Paradigm project file containing the final ontology diagrams and modeling decisions.
