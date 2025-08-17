@@ -9,11 +9,11 @@ The project explores how the Humanitarian Exchange Language (HXL) can be formall
 
 2- NRC-Data.xlsx – Simulated organizational workbook for NRC, prepared following the same structure.
 
-3- serialisationsheetdivision.xlsx –the first synthetic dataset demonstrating how sheets were divided- basically its also a syntehtic workbook data and follows the same structure. 
+3- Organization X - workbook –the first synthetic dataset demonstrating how sheets were divided- basically its also a syntehtic workbook data and follows the same structure. 
 
 🧩 Ontology
 
-1- HXLOntologyPrtoegeEdit.ttl – The ontology file in Turtle format, created and refined in Protégé.
+1- HONT ontology in turtle– The ontology file in Turtle format, created and refined in Protégé.
   Models humanitarian concepts such as Beneficiary, Aid Item, Distribution, Project, and their relationships.
   Integrates HXL tags as annotation properties to data properties
 
